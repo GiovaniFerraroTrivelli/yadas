@@ -1,0 +1,58 @@
+name: Build YADAS
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ ubuntu-latest, macos-latest, windows-latest ]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Get commit hash
+        id: vars
+        run: echo "COMMIT_HASH=$(echo ${GITHUB_SHA} | cut -c1-7)" >> $GITHUB_ENV
+
+      - name: Build the project
+        run: |
+          pyuic6 -o package/ui/main_window_ui.py designer/main_window.ui
+          if [ "${{ runner.os }}" == "Windows" ]; then
+            pyinstaller --onefile main.py --distpath dist/windows -n yadas
+            mv dist/windows/yadas.exe dist/windows/yadas-${COMMIT_HASH}.exe
+          elif [ "${{ runner.os }}" == "macOS" ]; then
+            pyinstaller --onefile main.py --distpath dist/macos -n yadas
+            mv dist/macos/yadas dist/macos/yadas-${COMMIT_HASH}
+          elif [ "${{ runner.os }}" == "Linux" ]; then
+            pyinstaller --onefile main.py --distpath dist/linux -n yadas
+            mv dist/linux/yadas dist/linux/yadas-${COMMIT_HASH}
+          fi
+        shell: bash
+
+      - name: Archive Artifacts
+        if: success()
+        uses: actions/upload-artifact@v3
+        with:
+          name: yadas-${{ runner.os }}-${{ env.COMMIT_HASH }}
+          path: |
+            dist/${{ runner.os }}/*
