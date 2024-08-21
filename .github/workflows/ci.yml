@@ -33,19 +33,17 @@ jobs:
       - name: Get commit hash
         id: vars
         run: echo "COMMIT_HASH=$(echo ${GITHUB_SHA} | cut -c1-7)" >> $GITHUB_ENV
+        shell: bash
 
       - name: Build the project
         run: |
           pyuic6 -o package/ui/main_window_ui.py designer/main_window.ui
           if [ "${{ runner.os }}" == "Windows" ]; then
-            pyinstaller --onefile main.py --distpath dist/windows -n yadas
-            mv dist/windows/yadas.exe dist/windows/yadas-${COMMIT_HASH}.exe
-          elif [ "${{ runner.os }}" == "macOS" ]; then
-            pyinstaller --onefile main.py --distpath dist/macos -n yadas
-            mv dist/macos/yadas dist/macos/yadas-${COMMIT_HASH}
-          elif [ "${{ runner.os }}" == "Linux" ]; then
-            pyinstaller --onefile main.py --distpath dist/linux -n yadas
-            mv dist/linux/yadas dist/linux/yadas-${COMMIT_HASH}
+            pyinstaller main.py -n yadas --onefile --windowed --icon=icons/logo.ico --add-data="icons/logo.png;icons" --distpath dist/${{ runner.os }}
+            mv dist/${{ runner.os }}/yadas.exe dist/${{ runner.os }}/yadas-${COMMIT_HASH}.exe
+          else
+            pyinstaller main.py -n yadas --onefile --windowed --distpath dist/${{ runner.os }}
+            mv dist/${{ runner.os }}/yadas dist/${{ runner.os }}/yadas-${COMMIT_HASH}
           fi
         shell: bash
 
