@@ -2,10 +2,14 @@ import asyncio
 
 from PyQt6 import QtWidgets
 from PyQt6.QtCore import Qt, QModelIndex
+from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import QWidget, QMessageBox, QTableWidgetItem
 
+from package.consts.consts import APP_NAME
+from package.enums.latencyenum import LatencyEnum
 from package.models.gameserver import GameServer
 from package.models.servermanager import ServerManager
+from package.singleton.config import Config
 from package.ui.main_window_ui import Ui_MainWindow
 from package.ui.server_table_model import ServerTableModel
 from package.utils.utils import float_to_hhmmss
@@ -22,8 +26,15 @@ class MainWindow(QWidget, Ui_MainWindow):
         # Load the UI file
         self.setupUi(self)
 
+        # Create menu bar
+        self.create_menu_bar()
+
+        # Show as maximized if it was maximized before
+        if Config().get("is_maximized"):
+            self.showMaximized()
+
         # Create a server manager instance
-        self.server_manager = ServerManager().load()
+        self.server_manager = ServerManager.load()
 
         # Create the server table model
         server_table_model = ServerTableModel(self.server_manager.get_servers())
@@ -31,6 +42,13 @@ class MainWindow(QWidget, Ui_MainWindow):
         self.serverTable.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.serverTable.customContextMenuRequested.connect(self.on_server_table_context_menu)
         self.serverTable.show()
+        self.set_server_table_column_widths()
+
+        # Set default visible columns width for the players table
+        header = self.serverPlayers.horizontalHeader()
+        header.setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeMode.Stretch)
+        self.serverPlayers.setColumnWidth(1, 100)
+        self.serverPlayers.setColumnWidth(2, 150)
 
         # Set latency graph properties
         self.latencyGraph.hide()
@@ -59,18 +77,18 @@ class MainWindow(QWidget, Ui_MainWindow):
 
             if not GameServer.is_valid_address(text):
                 # Create popup to show that the server address is invalid
-                QMessageBox.information(self, "YADAS", "Server address must be in the format ip:port.")
+                QMessageBox.information(self, APP_NAME, "Server address must be in the format ip:port.")
                 return
 
             server = GameServer(text)
 
             if self.server_manager.get_server_by_ip_port(server.ip, server.port):
                 # Create popup to show that the server already exists
-                QMessageBox.information(self, "YADAS", "Server has already been added to the server list.")
+                QMessageBox.information(self, APP_NAME, "Server has already been added to the server list.")
                 return
 
             if server.is_valid():
-                asyncio.run(server.refresh())
+                server.refresh()
                 self.server_manager.add_server(server)
 
         super().keyPressEvent(event)
@@ -87,6 +105,27 @@ class MainWindow(QWidget, Ui_MainWindow):
         # Cancel all async tasks
         asyncio.get_event_loop().close()
         super().closeEvent(a0)
+        self.save_config()
+
+    def set_server_table_column_widths(self) -> None:
+        """
+        Set the column widths for the server table.
+        :return:
+        """
+        column_widths = Config().get("server_list_columns_width")
+        for i, width in enumerate(column_widths):
+            self.serverTable.setColumnWidth(i, width)
+
+    def save_config(self) -> None:
+        """
+        Save the configuration to the config file.
+        :return:
+        """
+        Config().set("server_list_columns_width",
+                     [self.serverTable.columnWidth(i) for i in range(self.serverTable.model().columnCount())])
+        Config().set("is_maximized", self.isMaximized())
+
+        Config().save()
 
     def on_server_table_context_menu(self, pos) -> None:
         """
@@ -100,23 +139,27 @@ class MainWindow(QWidget, Ui_MainWindow):
         if not selected:
             return
 
+        # Get all selected addresses
+        addresses = set([index.data(Qt.ItemDataRole.UserRole) for index in selected])
+
         # Create menu
         menu = QtWidgets.QMenu()
-        delete_item = menu.addAction('Delete selected servers...')
-        delete_item.triggered.connect(lambda: self.remove_server(selected))
+
+        if len(addresses) == 1:
+            properties_item = menu.addAction('Properties...')
+            properties_item.triggered.connect(lambda: self.server_properties(addresses.pop()))
+        delete_item = menu.addAction(f'Delete {len(addresses)} selected server(s)...')
+        delete_item.triggered.connect(lambda: self.remove_server(addresses))
 
         # Display menu
         menu.exec(self.serverTable.viewport().mapToGlobal(pos))
 
-    def remove_server(self, selected) -> None:
+    def remove_server(self, addresses) -> None:
         """
         Remove the selected servers from the server list.
-        :param selected:  List of QModelIndex
+        :param addresses:  set of str addresses
         :return:
         """
-        # Get all selected addresses
-        addresses = set([index.data(Qt.ItemDataRole.UserRole) for index in selected])
-
         # Display dialog
         reply = QMessageBox.question(self, 'Delete Server',
                                      'Are you sure you want to delete the following servers? ' + ", ".join(addresses),
@@ -126,6 +169,51 @@ class MainWindow(QWidget, Ui_MainWindow):
         if reply == QMessageBox.StandardButton.Yes:
             for address in addresses:
                 self.server_manager.remove_server(address)
+
+    def server_properties(self, address) -> None:
+        """
+        Display the server properties dialog for the selected server.
+        :param address: str address
+        :return:
+        """
+        server = self.server_manager.get_server_by_address(address)
+
+        if server:
+            # Create dialog
+            dialog = QtWidgets.QDialog()
+            dialog.setWindowTitle("Modifying properties for server " + str(server))
+            dialog.setGeometry(100, 100, 400, 200)
+            dialog.setFixedSize(dialog.size())
+
+            # Create layout
+            # Add two rows with an input field and a label. After that, add a button to close the dialog.
+            layout = QtWidgets.QVBoxLayout()
+            layout.addWidget(QtWidgets.QLabel("Reserved slots:"))
+            reserved_slots = QtWidgets.QLineEdit(str(server.reserved_slots))
+            layout.addWidget(reserved_slots)
+            save_button = QtWidgets.QPushButton("Save")
+            save_button.clicked.connect(lambda: self.save_server_properties(dialog, server, reserved_slots.text()))
+            layout.addWidget(save_button)
+            button = QtWidgets.QPushButton("Cancel")
+            button.clicked.connect(dialog.close)
+            layout.addWidget(button)
+
+            # Set layout
+            dialog.setLayout(layout)
+            dialog.exec()
+
+    def save_server_properties(self, dialog, server, reserved_slots) -> None:
+        """
+        Save the server properties from the dialog.
+        :param dialog: QDialog dialog
+        :param server: GameServer server
+        :param reserved_slots: str reserved slots
+        :return:
+        """
+        server = self.server_manager.get_server_by_address(str(server))
+        server.reserved_slots = int(reserved_slots)
+        self.server_manager.update_server(server)
+        dialog.close()
 
     def on_server_table_row_changed(self, index: QModelIndex) -> None:
         """
@@ -203,24 +291,36 @@ class MainWindow(QWidget, Ui_MainWindow):
         self.serverPlayers.setRowCount(0)
         self.latencyGraph.hide()
 
-    def generate_latency_plot(self, data):
+    def generate_latency_plot(self, latency_history) -> None:
         """
         Generate a plot of the server latency history.
-        :param data: list of int latency values
+        :param latency_history: list of int latency values
         :return:
         """
+        # Let's copy to avoid concurrency issues
+        data = latency_history.copy()
+
         x = list(range(len(data)))
         self.latencyGraph.show()
         self.latencyGraph.plot(x, data, clear=True)
 
-    def fill_players_table(self, players):
+        # Plot vertical red lines for timeout values
+        for i, value in enumerate(data):
+            if value == LatencyEnum.TIMEOUT:
+                self.latencyGraph.addLine(x=i, pen='r')
+
+    def fill_players_table(self, players) -> None:
+        """
+        Fill the players table with all the players in the server.
+        :param players: list of Player
+        :return:
+        """
         if players is None:
             return
 
         table = self.serverPlayers
-
+        table.setSortingEnabled(False)
         table.setRowCount(len(players))
-        total_width = table.viewport().width()
 
         for i, player in enumerate(players):
             # Player name item
@@ -239,11 +339,23 @@ class MainWindow(QWidget, Ui_MainWindow):
             table.setItem(i, 1, score_item)
             table.setItem(i, 2, duration_item)
 
-        # TODO: Fix the column width calculation
-        # print("Table width:", total_width)
+        table.setSortingEnabled(True)
 
-        # table.setColumnWidth(0, int(total_width * 0.70))
-        # table.setColumnWidth(1, int(total_width * 0.15))
-        # table.setColumnWidth(2, int(total_width * 0.15))
+    def create_menu_bar(self) -> None:
+        """
+        Create the menu bar for the main window.
+        :return:
+        """
+        # Create menu bar
+        menu_bar = QtWidgets.QMenuBar(self)
 
-        # print("Each column width:", int(total_width * 0.70), int(total_width * 0.15), int(total_width * 0.15))
+        # File menu
+        file_menu = menu_bar.addMenu("File")
+
+        # Exit action
+        exit_action = QAction("Exit", self)
+        exit_action.triggered.connect(self.close)
+        file_menu.addAction(exit_action)
+
+        # Set the menu bar
+        self.layout().setMenuBar(menu_bar)

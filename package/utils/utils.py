@@ -2,6 +2,8 @@ from typing import Any
 
 from platformdirs import user_config_dir
 
+from package.consts.consts import APP_NAME_LOWER
+
 
 def float_to_hhmmss(seconds):
     """
@@ -20,7 +22,7 @@ def get_config_folder():
     Get the configuration folder for the application.
     :return:  str path to the configuration folder
     """
-    return user_config_dir("yadas", appauthor=False)
+    return user_config_dir(APP_NAME_LOWER, appauthor=False)
 
 
 def get_db_file_path() -> str:
@@ -28,7 +30,7 @@ def get_db_file_path() -> str:
     Get the path to the database file.
     :return:  str path to the database file
     """
-    return user_config_dir("yadas", appauthor=False) + "/pysw.data"
+    return user_config_dir(APP_NAME_LOWER, appauthor=False) + "/pysw.data"
 
 
 def get_db_file() -> Any:
@@ -58,3 +60,33 @@ def save_to_db_file(data) -> None:
         os.makedirs(os.path.dirname(file_path))
 
     pickle.dump(data, open(file_path, "wb"))
+
+
+def save_config_file(data) -> None:
+    """
+    Save data to the configuration file.
+    :param data: Any data
+    :return:
+    """
+    import json
+    import os
+
+    file_path = get_config_folder() + "/config.json"
+
+    if not os.path.exists(os.path.dirname(file_path)):
+        os.makedirs(os.path.dirname(file_path))
+
+    with open(file_path, "w") as f:
+        json.dump(data, f)
+
+
+def get_config_file_content() -> dict[str, Any]:
+    """
+    Load data from the configuration file.
+    :return:  Any data
+    """
+    import json
+    import os
+
+    file_path = get_config_folder() + "/config.json"
+    return json.load(open(file_path, "r")) if os.path.exists(file_path) else None

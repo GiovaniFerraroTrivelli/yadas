@@ -80,7 +80,7 @@ class ServerManager:
         :return:
         """
         for server in self.servers.copy().values():
-            asyncio.run(server.refresh())
+            threading.Thread(target=server.refresh).start()
             self._notify_listeners("UPDATE", str(server))
 
     def on_update(self, callback) -> None:
@@ -113,7 +113,17 @@ class ServerManager:
         Save the server list to a file
         :return:
         """
-        save_to_db_file(self.servers)
+        data = self.servers.copy()
+        # Remove attributes that are not needed
+        for server in data.values():
+            server.__dict__.pop("ping")
+            server.__dict__.pop("rules")
+            server.__dict__.pop("last_refresh")
+            server.__dict__.pop("players")
+            server.__dict__.pop("latency_history")
+            server.__dict__.pop("timeout_count")
+
+        save_to_db_file(data)
 
     def _auto_refresh(self) -> None:
         """
@@ -128,7 +138,7 @@ class ServerManager:
             elif self.selected is not None:
                 server = self.servers.get(self.selected)
                 if server:
-                    asyncio.run(server.refresh())
+                    threading.Thread(target=server.refresh).start()
                     self._notify_listeners("UPDATE", str(server))
             time.sleep(self.auto_refresh_interval)
 
@@ -147,6 +157,10 @@ class ServerManager:
         try:
             manager = ServerManager()
             if data := get_db_file():
+                temp = GameServer("0.0.0.0:0")
+                # Merge dict from file with the current dict
+                for server in data.values():
+                    server.__dict__ = {**temp.__dict__, **server.__dict__}
                 manager.servers = data
             return manager
         except FileNotFoundError:

@@ -1,4 +1,7 @@
 from PyQt6.QtCore import QAbstractTableModel, Qt
+from PyQt6.QtGui import QColor
+
+from package.enums.latencyenum import LatencyEnum
 
 
 class ServerTableModel(QAbstractTableModel):
@@ -33,6 +36,19 @@ class ServerTableModel(QAbstractTableModel):
                 return server.display_ping_in_ms()
         elif role == Qt.ItemDataRole.UserRole:
             return str(server)
+        elif role == Qt.ItemDataRole.ForegroundRole:
+            if index.column() == 5:
+                if server.ping == LatencyEnum.TIMEOUT:
+                    return QColor(Qt.GlobalColor.red)
+                elif server.ping > 50:
+                    return QColor(Qt.GlobalColor.yellow)
+                elif server.ping > 140:
+                    return QColor(Qt.GlobalColor.orange)
+            elif index.column() == 3:
+                if server.max_players - server.reserved_slots <= server.player_count:
+                    return QColor(Qt.GlobalColor.red)
+                elif server.player_count > 0:
+                    return QColor(Qt.GlobalColor.darkGreen)
 
         return None
 
